@@ -1,0 +1,225 @@
+version: '3'
+
+services:
+  nginx-b2b:
+    image: nginx
+    container_name: nginx-b2b
+    ports:
+      - 443:443
+    volumes:
+      - ./magento:/var/www/magento:cached
+      - ./docker/certs:/etc/nginx/certs
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./docker/nginx/magento.conf:/etc/nginx/conf.d/magento.conf
+      - ./docker/nginx/magento.conf.include:/etc/nginx/conf.d/magento.conf.include
+    environment:
+      XDEBUG_CONFIG: "remote_host=localhost"
+      WEB_ALIAS_DOMAIN: local.b2b.de
+      WEB_DOCUMENT_ROOT: /var/www/magento/pub
+      PHP_DATE_TIMEZONE: EST
+      PHP_DISPLAY_ERRORS: 1
+      PHP_MEMORY_LIMIT: 2048M
+      PHP_MAX_EXECUTION_TIME: 300
+      PHP_POST_MAX_SIZE: 500M
+      PHP_UPLOAD_MAX_FILESIZE: 1024M
+      DB_HOST: mysql-b2b
+      DB_NAME: magento
+      DB_USER: root
+      DB_PASS: root
+    depends_on:
+      - mysql-b2b
+      - redis-b2b
+      - php-fpm-b2b
+    networks:
+      - b2b
+
+  php-fpm-b2b:
+    build: docker/php-fpm
+    container_name: php-fpm-b2b
+    ports:
+      - 9000:9000
+    volumes:
+      - ./magento:/var/www/magento:cached
+      - ./docker/php-fpm/php.ini:/etc/php.ini
+    #      - ./docker/php-fpm/xdebug.ini:/etc/php.d/xdebug.ini
+    environment:
+      DB_HOST: mysql-b2b
+      DB_NAME: magento
+      DB_USER: root
+      DB_PASS: root
+      REDIS_HOST: 172.21.0.11
+      REDIS_PORT: 6379
+    depends_on:
+      - mysql-b2b
+      - redis-b2b
+      - es01
+    links:
+      - mysql-b2b
+      - es01
+    networks:
+      - b2b
+
+  redis-b2b:
+    image: redis
+    container_name: redis-b2b
+    ports:
+      - 6379:6379
+    networks:
+      static-network:
+        ipv4_address: 172.21.0.11
+
+  mysql-b2b:
+    image: mysql:8.0
+    container_name: mysql-b2b
+    command: --default-authentication-plugin=mysql_native_password
+    volumes:
+      - ./docker/mysql/database:/var/lib/mysql
+      - ./docker/mysql/mysqld.cnf:/etc/mysql/mysqld.cnf
+      - ./docker/mysql/data:/docker-entrypoint-initdb.d/:rw
+    environment:
+      MYSQL_DATABASE: 'magento'
+      MYSQL_ROOT_PASSWORD: 'root'
+      MYSQL_USER: 'magento'
+      MYSQL_PASSWORD: 'password123#'
+    ports:
+      - "3306:3306"
+    networks:
+      - b2b
+
+  #  phpmyadmin-b2b:
+  #    image: phpmyadmin/phpmyadmin
+  #    container_name: phpmyadmin-b2b
+  #    environment:
+  #      - PMA_ARBITRARY=1
+  #    restart: always
+  #    ports:
+  #      - 8085:80
+  #    volumes:
+  #      - /sessions
+  #    external_links:
+  #      - mysql-b2b
+  #    depends_on:
+  #      - mysql-b2b
+  #      - redis-b2b
+  #    networks:
+  #      - b2b
+
+  #  mailhog-b2b:
+  #    image: mailhog/mailhog
+  #    container_name: mailhog-b2b
+  #    ports:
+  #      - 1025:1025
+  #      - 8025:8025
+  #    networks:
+  #      - b2b
+
+  #  rabbitmq-b2b:
+  #    image: rabbitmq
+  #    container_name: rabbitmq-b2b
+  #    ports:
+  #      - "5672:5672"
+  #    restart: always
+  #    networks:
+  #      static-network:
+  #        ipv4_address: 172.19.0.17
+
+  es01:
+    #    image: elasticsearch:7.16.3
+    image: elasticsearch:7.9.0
+    container_name: es01
+    environment:
+      - node.name=es01
+      - cluster.name=es-docker-cluster
+      - discovery.seed_hosts=es02,es03
+      - cluster.initial_master_nodes=es01,es02,es03
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - ./docker/esdata/data01:/usr/share/elasticsearch/data
+    ports:
+      - 9200:9200
+    networks:
+      - b2b
+  #      static-network:
+  #        ipv4_address: 172.19.0.14
+
+  es02:
+    #    image: elasticsearch:7.16.3
+    image: elasticsearch:7.9.0
+    container_name: es02
+    environment:
+      - node.name=es02
+      - cluster.name=es-docker-cluster
+      - discovery.seed_hosts=es01,es03
+      - cluster.initial_master_nodes=es01,es02,es03
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - ./docker/esdata/data02:/usr/share/elasticsearch/data
+    networks:
+      - b2b
+  #      static-network:
+  #        ipv4_address: 172.19.0.15
+
+  es03:
+    #    image: elasticsearch:7.16.3
+    image: elasticsearch:7.9.0
+    container_name: es03
+    environment:
+      - node.name=es03
+      - cluster.name=es-docker-cluster
+      - discovery.seed_hosts=es01,es02
+      - cluster.initial_master_nodes=es01,es02,es03
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - ./docker/esdata/data03:/usr/share/elasticsearch/data
+    networks:
+      - b2b
+#      static-network:
+#        ipv4_address: 172.19.0.16
+
+#  kibana:
+#    build: docker/kibana/
+#    volumes:
+#      - ./docker/kibana/config/:/usr/share/kibana/config:ro
+#    ports:
+#      - '5601:5601'
+#    depends_on:
+#      - es01
+#    networks:
+#      - b2b
+
+networks:
+  b2b:
+    driver: bridge
+  static-network:
+    ipam:
+      config:
+        - subnet: 172.21.0.0/20
+          #docker-compose v3+ do not use ip_range
+          ip_range: 172.21.0.0/24
+
+volumes:
+  b2b-sync:
+    external: true
+  dbdata:
+    driver: local
+  data01:
+    driver: local
+  data02:
+    driver: local
+  data03:
+    driver: local
